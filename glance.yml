@@ -1,4 +1,5 @@
 server:
+#  assets-path: F://glance
   port: 8090
 
 theme:
@@ -14,45 +15,108 @@ pages:
         widgets:
           - type: calendar
 
+          - type: bookmarks
+            groups:
+              - links:
+                  - title: Gmail
+                    url: https://mail.google.com/mail/u/0/
+                  - title: Github
+                    url: https://github.com/
+              - title: Entertainment
+                color: 10 70 50
+                links:
+                  - title: Bilibili
+                    url: https://www.bilibili.com/
+                  - title: YouTube
+                    url: https://www.youtube.com/
+              - title: Social
+                color: 200 50 50
+                links:
+                  - title: Reddit
+                    url: https://www.reddit.com/
+                  - title: 知乎
+                    url: https://www.zhihu.com/
+
+
+      - size: full
+        widgets:
+          - type: search
+            search-engine: duckduckgo
+            bangs:
+              - title: YouTube
+                shortcut: "!yt"
+                url: https://www.youtube.com/results?search_query={QUERY}
+
           - type: rss
             limit: 10
             collapse-after: 3
             cache: 3h
             feeds:
-              - url: https://ciechanow.ski/atom.xml
-              - url: https://www.joshwcomeau.com/rss.xml
-                title: Josh Comeau
-              - url: https://samwho.dev/rss.xml
-              - url: https://awesomekling.github.io/feed.xml
-              - url: https://ishadeed.com/feed.xml
-                title: Ahmad Shadeed
+              - url: https://feed.wssh.one/rss/%E7%BA%BD%E7%BA%A6%E6%97%B6%E6%8A%A5
+                title: 纽约时报
 
-          - type: twitch-channels
-            channels:
-              - theprimeagen
-              - cohhcarnage
-              - christitustech
-              - blurbs
-              - asmongold
-              - jembawls
+          - type: rss
+            limit: 10
+            collapse-after: 3
+            cache: 3h
+            feeds:
+              - url: https://feed.wssh.one/rss/%E5%8D%8E%E5%B0%94%E8%A1%97%E8%A7%81%E9%97%BB
+                title: 华尔街见闻
 
-      - size: full
-        widgets:
+          - type: rss
+            limit: 10
+            collapse-after: 3
+            cache: 3h
+            feeds:
+              - url: https://feed.wssh.one/rss/%E6%B3%95%E6%96%B0%E7%A4%BE
+                title: 法新社
+
+          - type: rss
+            limit: 10
+            collapse-after: 3
+            cache: 3h
+            feeds:
+              - url: https://feed.wssh.one/rss/%E9%A6%99%E6%B8%AF01
+                title: 香港01
+
+          - type: rss
+            limit: 10
+            collapse-after: 3
+            cache: 6h
+            feeds:
+              - url: https://feed.wssh.one/rss/%E7%9F%A5%E4%B9%8E%E6%97%A5%E6%8A%A5
+                title: 知乎日报
+
           - type: hacker-news
 
-          - type: videos
-            channels:
-              - UCR-DXc1voovS8nhAvccRZhg # Jeff Geerling
-              - UCv6J_jJa8GJqFwQNgNrMuww # ServeTheHome
-              - UCOk-gHyjcWZNj3Br4oxwh0A # Techno Tim
 
-          - type: reddit
-            subreddit: selfhosted
 
       - size: small
         widgets:
+          - type: clock
+
           - type: weather
-            location: London, United Kingdom
+            location: ChengDu, China
+
+          - type: monitor
+            cache: 1m
+            title: Services
+            sites:
+              - title: NginxProxyManager
+                url: https://npm.wssh.one
+                icon: si:nginxproxymanager
+              - title: Vaultwarden
+                url: https://login.wssh.one/
+                icon: si:1password
+              - title: OneAPI
+                url: https://api.wssh.one/
+                icon: si:fastapi
+              - title: RSS
+                url: https://rss.wssh.one/
+                icon: si:rss
+              - title: 1Panel
+                url: https://1panel.wssh.one/
+                icon: si:googletasks
 
           - type: markets
             markets:
