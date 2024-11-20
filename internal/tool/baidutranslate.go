@@ -1,4 +1,4 @@
-package translate
+package tool
 
 import (
 	"crypto/md5"

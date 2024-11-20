@@ -4,6 +4,7 @@ go 1.22.5
 
 require (
 	github.com/mmcdole/gofeed v1.3.0
+	github.com/sashabaranov/go-openai v1.35.6
 	golang.org/x/text v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 )

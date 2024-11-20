@@ -2,7 +2,7 @@ package feed
 
 import (
 	"fmt"
-	"github.com/glanceapp/glance/internal/translate"
+	"github.com/glanceapp/glance/internal/tool"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -54,9 +54,9 @@ func translateTitlesConcurrently(titles []string) []string {
 			sem <- struct{}{}        // 获取一个信号量
 			defer func() { <-sem }() // 释放信号量
 
-			translated, err := translate.TranslateWithDefaults(text)
+			translated, err := tool.PromptTranslate(text)
 			if err != nil {
-				slog.Error("Failed to translate title", "error", err, "title", text)
+				slog.Error("Failed to tool title", "error", err, "title", text)
 				translated = text // 翻译失败，使用原始标题
 			}
 
