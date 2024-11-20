@@ -47,6 +47,11 @@ pages:
                 shortcut: "!yt"
                 url: https://www.youtube.com/results?search_query={QUERY}
 
+          - type: videos
+            channels:
+              - 19956596
+              - 1311706157
+
           - type: rss
             limit: 10
             collapse-after: 3

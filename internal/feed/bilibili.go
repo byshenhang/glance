@@ -2,282 +2,282 @@
 package feed
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"github.com/glanceapp/glance/internal/parser"
 	"log/slog"
-	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
 
-// 定义 Bilibili API 响应的结构体
-type bilibiliApiResponse struct {
-	Code    int          `json:"code"`
-	Message string       `json:"message"`
-	Ttl     int          `json:"ttl"`
-	Data    bilibiliData `json:"data"`
-}
+// ParseTimeString 将时间字符串解析为 time.Time
+// 支持两种格式： "YYYY-M-D" 和 "M-D"
+// 如果是 "M-D" 格式，自动使用当前年份
+func ParseTimeString(timeStr string) (time.Time, error) {
+	timeStr = strings.TrimSpace(timeStr)
 
-type bilibiliData struct {
-	Note string          `json:"note"`
-	List []bilibiliVideo `json:"list"`
-}
+	// 正则表达式匹配完整日期 "YYYY-M-D"
+	fullDateRegex := regexp.MustCompile(`^\d{4}-\d{1,2}-\d{1,2}$`)
+	// 正则表达式匹配简化日期 "M-D"
+	shortDateRegex := regexp.MustCompile(`^\d{1,2}-\d{1,2}$`)
 
-type bilibiliVideo struct {
-	Aid         int64             `json:"aid"`
-	Videos      int               `json:"videos"`
-	Tid         int               `json:"tid"`
-	Tname       string            `json:"tname"`
-	Copyright   int               `json:"copyright"`
-	Pic         string            `json:"pic"`
-	Title       string            `json:"title"`
-	Pubdate     int64             `json:"pubdate"`
-	Ctime       int64             `json:"ctime"`
-	Desc        string            `json:"desc"`
-	State       int               `json:"state"`
-	Duration    int               `json:"duration"`
-	Rights      bilibiliRights    `json:"rights"`
-	Owner       bilibiliOwner     `json:"owner"`
-	Stat        bilibiliStat      `json:"stat"`
-	Dynamic     string            `json:"dynamic"`
-	Cid         int64             `json:"cid"`
-	Dimension   bilibiliDimension `json:"dimension"`
-	ShortLinkV2 string            `json:"short_link_v2"`
-	FirstFrame  string            `json:"first_frame"`
-	PubLocation string            `json:"pub_location"`
-	Cover43     string            `json:"cover43"`
-	Bvid        string            `json:"bvid"`
-	Score       int               `json:"score"`
-	EnableVt    int               `json:"enable_vt"`
-}
+	currentYear := time.Now().Year()
 
-type bilibiliRights struct {
-	Bp            int `json:"bp"`
-	Elec          int `json:"elec"`
-	Download      int `json:"download"`
-	Movie         int `json:"movie"`
-	Pay           int `json:"pay"`
-	Hd5           int `json:"hd5"`
-	NoReprint     int `json:"no_reprint"`
-	Autoplay      int `json:"autoplay"`
-	UgcPay        int `json:"ugc_pay"`
-	IsCooperation int `json:"is_cooperation"`
-	UgcPayPreview int `json:"ugc_pay_preview"`
-	NoBackground  int `json:"no_background"`
-	ArcPay        int `json:"arc_pay"`
-	PayFreeWatch  int `json:"pay_free_watch"`
-}
+	if fullDateRegex.MatchString(timeStr) {
+		// 尝试使用 "2006-1-2" 格式解析
+		parsedTime, err := time.Parse("2006-1-2", timeStr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("无法解析完整日期格式: %w", err)
+		}
+		return parsedTime, nil
+	} else if shortDateRegex.MatchString(timeStr) {
+		// 拼接当前年份，形成 "YYYY-M-D"
+		fullDateStr := fmt.Sprintf("%d-%s", currentYear, timeStr)
+		parsedTime, err := time.Parse("2006-1-2", fullDateStr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("无法解析简化日期格式: %w", err)
+		}
 
-type bilibiliOwner struct {
-	Mid  int64  `json:"mid"`
-	Name string `json:"name"`
-	Face string `json:"face"`
-}
+		// 如果解析的日期在未来，假设它属于上一年
+		if parsedTime.After(time.Now()) {
+			fullDateStr = fmt.Sprintf("%d-%s", currentYear-1, timeStr)
+			parsedTime, err = time.Parse("2006-1-2", fullDateStr)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("无法解析简化日期格式为上一年: %w", err)
+			}
+		}
 
-type bilibiliStat struct {
-	Aid      int64 `json:"aid"`
-	View     int   `json:"view"`
-	Danmaku  int   `json:"danmaku"`
-	Reply    int   `json:"reply"`
-	Favorite int   `json:"favorite"`
-	Coin     int   `json:"coin"`
-	Share    int   `json:"share"`
-	NowRank  int   `json:"now_rank"`
-	HisRank  int   `json:"his_rank"`
-	Like     int   `json:"like"`
-	Dislike  int   `json:"dislike"`
-	Vt       int   `json:"vt"`
-	Vv       int   `json:"vv"`
-}
-
-type bilibiliDimension struct {
-	Width  int `json:"width"`
-	Height int `json:"height"`
-	Rotate int `json:"rotate"`
-}
-
-// 将 Bilibili 的发布时间（Unix 时间戳）转换为 time.Time
-func parseBilibiliPubDate(t int64) time.Time {
-	return time.Unix(t, 0)
+		return parsedTime, nil
+	} else {
+		return time.Time{}, errors.New("不支持的日期格式")
+	}
 }
 
 func FetchBilibiliChannelUploads(channelIds []string, videoUrlTemplate string, includeShorts bool) (Videos, error) {
-	requests := make([]*http.Request, 0, 1)
+	var (
+		videos     Videos
+		fetchError error
+	)
 
-	// 获取代理 IP
-	proxyAPI := "http://v2.api.juliangip.com/company/postpay/getips?auto_white=1&num=1&pt=1&result_type=text&split=1&trade_no=6047294990559659&sign=c2e6d4a312bdd2dec56fe602e78b1004"
-	proxyIP, err := getProxyIP(proxyAPI)
-	if err != nil {
-		slog.Error("Failed to get proxy IP", "error", err)
-		return nil, fmt.Errorf("failed to get proxy IP: %v", err)
-	}
-	slog.Info("获取到的代理IP", "proxy", proxyIP)
+	// 定义 XPath 表达式
+	cardBoxXPath := "//div[contains(@class, 'content') and contains(@class, 'clearfix')]/div"
+	hrefXPath := ".//a[contains(@class, 'cover')]"
+	imgXPath := ".//div[contains(@class, 'b-img')]//source[@type='image/webp']"
+	titleXPath := ".//a[contains(@class, 'title')]/text()"
+	timeXPath := ".//span[contains(@class, 'time')]/text()"
+	authorPath := ".//span[@id=\"h-name\"]/text()"
 
-	// 解析代理 URL
-	proxyURL, err := url.Parse(fmt.Sprintf("http://%s", proxyIP))
-	if err != nil {
-		slog.Error("Invalid proxy URL", "proxy", proxyIP, "error", err)
-		return nil, fmt.Errorf("invalid proxy URL: %v", err)
-	}
+	// 顺序处理每个频道
+	for _, channelId := range channelIds {
+		channelURL := fmt.Sprintf("https://space.bilibili.com/%s", channelId)
+		channelContent := fmt.Sprintf("html/bilibili_%s.html", channelId)
 
-	// 配置 Transport 使用代理
-	transport := &http.Transport{
-		Proxy: http.ProxyURL(proxyURL),
-	}
+		// 定义调用参数
+		options := parser.FetchOptions{
+			URL:         channelURL,
+			Timeout:     15,
+			Show:        true, // 根据需要设置
+			Wait:        "load",
+			Render:      9000,
+			OutputDir:   channelContent,
+			UserDataDir: "./user_data",
+			CookieFile:  "C:\\Users\\Administrator\\Downloads\\fetch_content-V2\\cookie.json",
+			FetcherPath: "C:\\Users\\Administrator\\Downloads\\fetch_content-V2\\output\\fetch_content\\fetch_content.exe",
+		}
 
-	// 配置 HTTP 客户端
-	bililiclient := &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Second,
-	}
-
-	// 构造 API URL，这里假设使用排名接口，不再逐个频道请求
-	apiUrl := "https://api.bilibili.com/x/web-interface/ranking/v2"
-
-	request, err := http.NewRequest("GET", apiUrl, nil)
-	if err != nil {
-		slog.Error("Failed to create request", "channel", "ranking", "error", err)
-		return nil, fmt.Errorf("failed to create request: %v", err)
-	}
-
-	// 设置请求头
-	headers := map[string]string{
-		"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-		"Accept-Language": "en-US,en;q=0.5",
-		"Connection":      "keep-alive",
-	}
-
-	// 遍历设置所有的头部
-	for key, value := range headers {
-		request.Header.Set(key, value)
-	}
-
-	requests = append(requests, request)
-
-	// 使用与 YouTube 相同的并发模型
-	job := newJob(decodeJsonFromRequestTask[bilibiliApiResponse](bililiclient), requests).withWorkers(30)
-
-	responses, errs, err := workerPoolDo(job)
-
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrNoContent, err)
-	}
-
-	videos := make(Videos, 0, 10) // 仅获取前10个视频
-
-	var failed int
-
-	for i, response := range responses {
-		if errs[i] != nil {
-			failed++
-			slog.Error("Failed to fetch Bilibili feed", "error", errs[i])
+		// 调用 FetchHTML 函数获取 HTML 内容
+		htmlContent, err := parser.FetchHTML(options)
+		if err != nil {
+			slog.Error("Failed to fetch HTML", "channel", channelId, "error", err)
+			if fetchError == nil {
+				fetchError = err
+			}
 			continue
 		}
 
-		// 直接使用 response 作为 bilibiliApiResponse 类型，无需类型断言
-		apiResp := response
-
-		if apiResp.Code != 0 {
-			failed++
-			slog.Error("Bilibili API returned non-zero code", "code", apiResp.Code, "message", apiResp.Message)
+		// 解析 HTML 内容
+		doc, err := parser.ParseHTMLs(htmlContent)
+		if err != nil {
+			slog.Error("Failed to parse HTML", "channel", channelId, "error", err)
+			if fetchError == nil {
+				fetchError = err
+			}
 			continue
 		}
 
-		// 仅获取前10个视频
-		for idx, video := range apiResp.Data.List {
-			if idx >= 10 {
-				break
+		// 提取作者信息
+		author, err := parser.GetText(doc, authorPath)
+		if err != nil {
+			slog.Error("未能提取 author", "channel", channelId, "error", err)
+			author = "None"
+		} else {
+			author = strings.TrimSpace(author)
+		}
+
+		// 查找所有 cardBox 节点
+		cardBoxes, err := parser.FindNodes(doc, cardBoxXPath)
+		if err != nil {
+			slog.Error("Failed to find card boxes", "channel", channelId, "error", err)
+			if fetchError == nil {
+				fetchError = err
+			}
+			continue
+		}
+
+		var channelVideos Videos
+
+		for _, cardBox := range cardBoxes {
+			// 提取 <a class='cover'> 节点并获取 href 属性
+			aNode, err := parser.FindNode(cardBox, hrefXPath)
+			if err != nil || aNode == nil {
+				slog.Error("未找到 a.cover 节点", "channel", channelId, "error", err)
+				continue
+			}
+			href, err := parser.GetAttribute(aNode, "href")
+			if err != nil {
+				slog.Error("未能提取 href 属性", "channel", channelId, "error", err)
+				href = ""
+			} else {
+				href = strings.Replace(href, "//", "", 1)
+			}
+
+			// 提取 <source type='image/webp'> 节点并获取 srcset 属性
+			sourceNode, err := parser.FindNode(cardBox, imgXPath)
+			if err != nil || sourceNode == nil {
+				slog.Error("未找到 source[type='image/webp'] 节点", "channel", channelId, "error", err)
+				continue
+			}
+			imgSrc, err := parser.GetAttribute(sourceNode, "srcset")
+			if err != nil {
+				slog.Error("未能提取 srcset 属性", "channel", channelId, "error", err)
+				imgSrc = ""
+			} else {
+				imgSrc = "https:" + imgSrc
+			}
+
+			// 提取 title
+			title, err := parser.GetText(cardBox, titleXPath)
+			if err != nil {
+				slog.Error("未能提取 title", "channel", channelId, "error", err)
+				title = ""
+			} else {
+				title = strings.TrimSpace(title)
+			}
+
+			// 提取 time
+			timeStr, err := parser.GetText(cardBox, timeXPath)
+			if err != nil {
+				slog.Error("未能提取 time", "channel", channelId, "error", err)
+				timeStr = ""
+			} else {
+				timeStr = strings.TrimSpace(timeStr)
+			}
+
+			// 解析发布时间
+			parsedTime, err := ParseTimeString(timeStr)
+			if err != nil {
+				slog.Error("无法解析时间字符串", "channel", channelId, "time", timeStr, "error", err)
+				parsedTime = time.Time{}
+				continue
 			}
 
 			// 构造视频 URL
-			var videoUrl string
+			videoUrl := "https://" + href
 
-			if videoUrlTemplate == "" {
-				videoUrl = video.ShortLinkV2
-			} else {
-				videoUrl = strings.ReplaceAll(videoUrlTemplate, "{VIDEO-ID}", video.Bvid)
-			}
+			// 构造 Author URL
+			authorUrl := fmt.Sprintf("https://space.bilibili.com/%s/video", channelId)
 
-			// 构造 Author URL，假设为 Bilibili 的个人空间
-			authorUrl := fmt.Sprintf("https://space.bilibili.com/%d/video", video.Owner.Mid)
-
-			videos = append(videos, Video{
-				ThumbnailUrl: video.Pic,
-				Title:        video.Title,
+			// 添加视频信息到频道视频列表
+			channelVideos = append(channelVideos, Video{
+				ThumbnailUrl: imgSrc,
+				Title:        title,
 				Url:          videoUrl,
-				Author:       video.Owner.Name,
+				Author:       author,
 				AuthorUrl:    authorUrl,
-				TimePosted:   parseBilibiliPubDate(video.Pubdate),
+				TimePosted:   parsedTime,
 			})
 		}
+
+		// 如果没有视频，跳过
+		if len(channelVideos) == 0 {
+			continue
+		}
+
+		// 排序视频，按发布时间降序
+		sort.Slice(channelVideos, func(i, j int) bool {
+			return channelVideos[i].TimePosted.After(channelVideos[j].TimePosted)
+		})
+
+		// 仅保留前 5 个视频
+		if len(channelVideos) > 5 {
+			channelVideos = channelVideos[:5]
+		}
+
+		// 将频道视频添加到总视频列表
+		videos = append(videos, channelVideos...)
+	}
+
+	if fetchError != nil && len(videos) == 0 {
+		return nil, fetchError
 	}
 
 	if len(videos) == 0 {
 		return nil, ErrNoContent
 	}
 
-	// 假设 Videos 类型有 SortByNewest 方法
-	// videos.SortByNewest()
-
-	if failed > 0 {
-		return videos, fmt.Errorf("%w: missing videos from %d channels", ErrPartialContent, failed)
-	}
-
 	return videos, nil
 }
 
-// 获取代理 IP 的辅助函数
-func getProxyIP(apiURL string) (string, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	resp, err := client.Get(apiURL)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	proxyIP := strings.TrimSpace(string(body))
-	if proxyIP == "" {
-		return "", fmt.Errorf("empty proxy IP received")
-	}
-
-	return proxyIP, nil
+// ExtractedData 定义提取的数据结构
+type ExtractedData struct {
+	Href   string
+	ImgSrc string
+	Title  string
+	Time   string
+	Author string
 }
 
-// decodeJsonFromRequestTaskBillili 是一个通用的任务函数，用于解析 JSON 响应
-func decodeJsonFromRequestTaskBillili[T any](client *http.Client) func(*http.Request) (any, error) {
-	return func(req *http.Request) (any, error) {
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
+// FetchResult 定义抓取结果的结构
+type FetchResult struct {
+	URL   string
+	Data  []ExtractedData
+	Error error
+}
 
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("non-200 status code: %d", resp.StatusCode)
-		}
-
-		var result T
-		decoder := json.NewDecoder(resp.Body)
-		err = decoder.Decode(&result)
-		if err != nil {
-			return nil, err
-		}
-
-		return result, nil
+// extractVideoID 从 href 中提取视频 ID
+func extractVideoID(href string) string {
+	// 假设 href 格式为 "/video/BV1xxxxxx" 或类似格式，根据实际情况调整
+	parts := strings.Split(href, "/")
+	if len(parts) > 2 {
+		return parts[2]
 	}
+	return ""
+}
+
+// extractAuthorID 从 href 中提取作者 ID
+func extractAuthorID(href string) int64 {
+	// 假设 href 包含作者 ID，可以根据实际情况提取
+	// 这里返回一个固定值作为示例
+	return 19956596
+}
+
+// addDomain 如果 URL 是相对路径，则添加域名
+func addDomain(base, link string) string {
+	parsedBase, err := url.Parse(base)
+	if err != nil {
+		return link
+	}
+	parsedLink, err := url.Parse(link)
+	if err != nil {
+		return link
+	}
+	return parsedBase.ResolveReference(parsedLink).String()
+}
+
+// parseBilibiliPubDate 将发布时间字符串转换为 time.Time
+func parseBilibiliPubDate(t time.Time) time.Time {
+	return t
 }
