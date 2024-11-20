@@ -4,3 +4,4 @@
 glance*.yml
 /.idea
 /fetch_web
+/dist/fetch_web
