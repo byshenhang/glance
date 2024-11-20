@@ -81,11 +81,11 @@ func FetchBilibiliChannelUploads(channelIds []string, videoUrlTemplate string, i
 			Timeout:     15,
 			Show:        true, // 根据需要设置
 			Wait:        "load",
-			Render:      9000,
+			Render:      5000,
 			OutputDir:   channelContent,
 			UserDataDir: "./user_data",
-			CookieFile:  "C:\\Users\\Administrator\\Downloads\\fetch_content-V2\\cookie.json",
-			FetcherPath: "C:\\Users\\Administrator\\Downloads\\fetch_content-V2\\output\\fetch_content\\fetch_content.exe",
+			CookieFile:  "F:\\glance\\cookie\\bilibili_cookie.json",
+			FetcherPath: "F:\\glance\\fetch_web\\fetch_content.exe",
 		}
 
 		// 调用 FetchHTML 函数获取 HTML 内容
