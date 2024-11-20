@@ -7,6 +7,8 @@ import (
 	"github.com/glanceapp/glance/internal/parser"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -75,6 +77,17 @@ func FetchBilibiliChannelUploads(channelIds []string, videoUrlTemplate string, i
 		channelURL := fmt.Sprintf("https://space.bilibili.com/%s", channelId)
 		channelContent := fmt.Sprintf("html/bilibili_%s.html", channelId)
 
+		// 获取当前可执行文件的路径
+		exePath, err := os.Executable()
+		if err != nil {
+			fmt.Println("Error getting executable path:", err)
+		}
+		// 获取当前可执行文件的目录
+		exeDir := filepath.Dir(exePath)
+		// 拼接文件路径
+		bilibiliCookiePath := filepath.Join(exeDir, "cookie", "bilibili_cookie.json")
+		fetchContentExePath := filepath.Join(exeDir, "fetch_web", "fetch_content.exe")
+
 		// 定义调用参数
 		options := parser.FetchOptions{
 			URL:         channelURL,
@@ -84,8 +97,8 @@ func FetchBilibiliChannelUploads(channelIds []string, videoUrlTemplate string, i
 			Render:      5000,
 			OutputDir:   channelContent,
 			UserDataDir: "./user_data",
-			CookieFile:  "F:\\glance\\cookie\\bilibili_cookie.json",
-			FetcherPath: "F:\\glance\\fetch_web\\fetch_content.exe",
+			CookieFile:  bilibiliCookiePath,
+			FetcherPath: fetchContentExePath,
 		}
 
 		// 调用 FetchHTML 函数获取 HTML 内容
