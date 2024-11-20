@@ -2,10 +2,12 @@ package feed
 
 import (
 	"fmt"
+	"github.com/glanceapp/glance/internal/translate"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,6 +31,57 @@ func getHackerNewsPostIds(sort string) ([]int, error) {
 	return response, nil
 }
 
+// translationResult holds the result of a translation task
+type translationResult struct {
+	Index           int
+	OriginalTitle   string
+	TranslatedTitle string
+	Err             error
+}
+
+// translateTitlesConcurrently 并发翻译多个标题
+func translateTitlesConcurrently(titles []string) []string {
+	var wg sync.WaitGroup
+	resultsChan := make(chan translationResult, len(titles))
+	concurrencyLimit := 2 // 最大并发数，根据实际情况调整
+
+	sem := make(chan struct{}, concurrencyLimit)
+
+	for i, title := range titles {
+		wg.Add(1)
+		go func(index int, text string) {
+			defer wg.Done()
+			sem <- struct{}{}        // 获取一个信号量
+			defer func() { <-sem }() // 释放信号量
+
+			translated, err := translate.TranslateWithDefaults(text)
+			if err != nil {
+				slog.Error("Failed to translate title", "error", err, "title", text)
+				translated = text // 翻译失败，使用原始标题
+			}
+
+			resultsChan <- translationResult{
+				Index:           index,
+				OriginalTitle:   text,
+				TranslatedTitle: translated,
+				Err:             err,
+			}
+		}(i, title)
+	}
+
+	// 等待所有翻译完成
+	wg.Wait()
+	close(resultsChan)
+
+	// 收集结果
+	translatedTitles := make([]string, len(titles))
+	for res := range resultsChan {
+		translatedTitles[res.Index] = res.TranslatedTitle
+	}
+
+	return translatedTitles
+}
+
 func getHackerNewsPostsFromIds(postIds []int, commentsUrlTemplate string) (ForumPosts, error) {
 	requests := make([]*http.Request, len(postIds))
 
@@ -45,30 +98,44 @@ func getHackerNewsPostsFromIds(postIds []int, commentsUrlTemplate string) (Forum
 		return nil, err
 	}
 
-	posts := make(ForumPosts, 0, len(postIds))
+	// 收集所有需要翻译的标题
+	titles := make([]string, 0, len(postIds))
+	indexMap := make([]int, 0, len(postIds)) // 保存每个标题对应的原始索引
 
-	for i := range results {
+	for i, res := range results {
 		if errs[i] != nil {
 			slog.Error("Failed to fetch or parse hacker news post", "error", errs[i], "url", requests[i].URL)
 			continue
 		}
+		titles = append(titles, res.Title)
+		indexMap = append(indexMap, i)
+	}
+
+	// 并发翻译标题
+	translatedTitles := translateTitlesConcurrently(titles)
+
+	// 构建 ForumPosts
+	posts := make(ForumPosts, 0, len(postIds))
+
+	for i, translatedTitle := range translatedTitles {
+		originalIndex := indexMap[i]
+		res := results[originalIndex]
 
 		var commentsUrl string
-
 		if commentsUrlTemplate == "" {
-			commentsUrl = "https://news.ycombinator.com/item?id=" + strconv.Itoa(results[i].Id)
+			commentsUrl = "https://news.ycombinator.com/item?id=" + strconv.Itoa(res.Id)
 		} else {
-			commentsUrl = strings.ReplaceAll(commentsUrlTemplate, "{POST-ID}", strconv.Itoa(results[i].Id))
+			commentsUrl = strings.ReplaceAll(commentsUrlTemplate, "{POST-ID}", strconv.Itoa(res.Id))
 		}
 
 		posts = append(posts, ForumPost{
-			Title:           results[i].Title,
+			Title:           translatedTitle,
 			DiscussionUrl:   commentsUrl,
-			TargetUrl:       results[i].TargetUrl,
-			TargetUrlDomain: extractDomainFromUrl(results[i].TargetUrl),
-			CommentCount:    results[i].CommentCount,
-			Score:           results[i].Score,
-			TimePosted:      time.Unix(results[i].TimePosted, 0),
+			TargetUrl:       res.TargetUrl,
+			TargetUrlDomain: extractDomainFromUrl(res.TargetUrl),
+			CommentCount:    res.CommentCount,
+			Score:           res.Score,
+			TimePosted:      time.Unix(res.TimePosted, 0),
 		})
 	}
 
