@@ -10,4 +10,4 @@ const DefaultTimeStep = 10
 // Tolerance 是验证动态密钥时允许的时间窗口偏移量。
 const Tolerance = 1
 
-const CookieAPI = "http://127.0.0.1:8100/api/cookie"
+const CookieAPI = "http://127.0.0.1:8080/api/cookie"
