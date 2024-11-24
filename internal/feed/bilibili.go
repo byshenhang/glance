@@ -4,8 +4,12 @@ package feed
 import (
 	"errors"
 	"fmt"
+	"github.com/glanceapp/glance/internal/define"
 	"github.com/glanceapp/glance/internal/parser"
+	"github.com/glanceapp/glance/internal/tool"
+	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -86,6 +90,41 @@ func FetchBilibiliChannelUploads(channelIds []string, videoUrlTemplate string, i
 		exeDir := filepath.Dir(exePath)
 		// 拼接文件路径
 		bilibiliCookiePath := filepath.Join(exeDir, "cookie", "bilibili_cookie.json")
+		// 创建cookie目录
+		if err := os.MkdirAll(filepath.Dir(bilibiliCookiePath), os.ModePerm); err != nil {
+			slog.Error("创建cookie目录失败: %v", err)
+		}
+
+		helper := tool.NewDynamicKeyHelper()
+		// 生成密钥
+		key, err := helper.GenerateKey(define.SharedSecret, define.DefaultTimeStep)
+		if err != nil {
+			slog.Error("生成密钥时出错: %v", err)
+		}
+
+		params := url.Values{}
+		params.Add("name", "bilibili")
+		params.Add("key", key)
+
+		fullURL := fmt.Sprintf("%s?%s", define.CookieAPI, params.Encode())
+
+		// 发送GET请求获取Cookie JSON
+		resp, err := http.Get(fullURL)
+		if err != nil {
+			slog.Error("GET请求失败: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// 保存响应体到文件
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			slog.Error("读取响应体失败: %v", err)
+		}
+
+		if err := os.WriteFile(bilibiliCookiePath, body, 0644); err != nil {
+			slog.Error("写入文件失败: %v", err)
+		}
+
 		fetchContentExePath := filepath.Join(exeDir, "fetch_web", "fetch_content.exe")
 
 		// 定义调用参数
